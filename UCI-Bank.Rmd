@@ -1,0 +1,142 @@
+---
+title: "UCI-Bank"
+author: "Hsu sir"
+
+---
+
+### **資料說明**
+#### 1.本資料集是UCI Machine Learning epository中的Bank Marketing資料集
+
+#### 2.由2008/5月- 2010/10 月共45211筆資料ㄝ, 我們抽取10%共計4521筆
+#### - age:年齡
+#### - job:工作類型
+#### - marital:婚姻狀況
+#### - education:教育程度
+#### - default:是否無信用違約
+#### - Balance:年均餘額（歐元）
+#### - housing:是否有房貸
+#### - loan:是否有個人貸款
+#### - contact:聯繫方式
+#### - day:最近一次聯繫日期
+#### - month:最近一次聯繫月份
+#### - duration:最近一次聯繫持續的時間（秒數）
+#### - compaign:該專案中聯繫的總次數
+#### - pdays:最近一次聯繫距今的日數
+#### - previous:該次專案之前聯繫的總次數
+#### - poutcome:之前行銷專案的結果
+#### - y:是否訂閱銀行的分期存款
+
+---
+
+### **[設定所需的函式庫(libraries)以及載入資料]**
+```{r message=FALSE, warning=FALSE, results='hide'}
+setwd("F:/Customer Course/UCI_Bank")
+data=read.csv("bank.csv",header=TRUE,sep=";")
+```
+
+### **[Part 1].基本資料訊息**
+
+#### **1-1.資料初探**
+```{r message=FALSE, warning=FALSE}
+head(data)
+dim(data)
+summary(data)
+sum(data$y=="yes"); sum(data$y=="no")
+```
+
+#### **1-2.訓練集與測試集切割**
+```{r message=FALSE, warning=FALSE}
+sub=sample(1:nrow(data),round(nrow(data)/4)) #隨機取出1/4樣本
+length(sub)              #顯示這1/4的樣本序號個數
+
+data_train=data[-sub,] #將不包含在sub中的資料建為訓練集
+data_test=data[sub,] #將包含在sub中的資料建為測試集
+dim(data_train);dim(data_test) #顯示訓練集及測試集的維度
+```
+
+### **[Part 2].Bagging 演算法**
+```{r message=FALSE, warning=FALSE}
+#install.packages("adabag")
+#install.packages("rpart")
+library(adabag)
+library(rpart)
+```
+
+#### **2-1.對訓練集執行Bagging 演算法**
+```{r message=FALSE, warning=FALSE}
+bag=bagging(y~.,data_train,mfinal=5) #建立模型，產生五棵決策樹
+names(bag) #顯示模型bag的輸出項名稱
+bag$formula #模型bag的所依據的公式
+```
+
+#### **2-1-1.依據模型bag 中的運算情況**
+```{r message=FALSE, warning=FALSE}
+bag$trees[2] #顯示兩棵樹來看看
+bag$votes[105:115,] #模型bag中第105-115個樣本的投票狀況
+bag$prob[105:115,] #模型bag中第105-115個樣本被預測為各種別的機率
+bag$class[105:115] #模型bag中第105-115個樣本的預測類別
+bag$samples[105:115,] #模型bag中第105-115個樣本在五次反覆運算過程中的抽樣情況
+```
+
+```{r message=FALSE, warning=FALSE}
+bag$importance #模型bag中各變數的相對重要性
+barplot(bag$importance)
+```
+
+#### **2-1-2.子樹控制**
+```{r message=FALSE, warning=FALSE}
+#透過control參數控制基礎分類的覆雜度
+# maxdepth=3是控制樹的深度為3，所以子樹的複雜度明顯降低
+bag1=bagging(y~.,data_train,mfinal=5,control=rpart.control(maxdepth=3)) 
+bag1$trees[2] #檢視第二顆子樹的實際結構
+```
+
+#### **2-2.對測試集的目標進行預測**
+```{r message=FALSE, warning=FALSE}
+pre_bag=predict(bag,data_test) #使用bag模型對data_test進行預測
+names(pre_bag) #顯示pre_bag的輸出項名稱
+```
+
+#### **2-2-1.預測結果檢視**
+```{r message=FALSE, warning=FALSE}
+pre_bag$votes[1:10,] #前10個樣本的投票狀況
+pre_bag$prob[1:10,] #前10個樣本被預測為各種別的機率
+pre_bag$class[1:10] #前10個樣本的預測類別
+pre_bag$confusion #預測集的混淆矩陣
+pre_bag$error #預測集的錯誤機率
+```
+
+#### **2-2-2.檢查預測結果**
+```{r message=FALSE, warning=FALSE}
+#我們用少數類別與多數類別做檢視，以做為後續兩種類別錯誤率的計算
+sub_minor=which(data_test$y=="yes") #少數類別yes在測試集中的編號
+sub_major=which(data_test$y=="no") #多數類別no在測試集中的編號
+length(sub_minor); length(sub_major) #檢視兩種類別的個數
+```
+
+```{r message=FALSE, warning=FALSE}
+#分別計算整體與兩種錯誤率
+err_bag=sum(pre_bag$class!=data_test$y)/nrow(data_test) #計算整體錯誤率
+err_minor_bag=sum(pre_bag$class[sub_minor]!=data_test$y[sub_minor])/length(sub_minor)#計算yes的錯誤率
+err_major_bag=sum(pre_bag$class[sub_major]!=data_test$y[sub_major])/length(sub_major)#計算no錯誤率
+
+err_bag; err_minor_bag; err_major_bag
+```
+
+- 我們可以發現yes的錯誤率高達0.6471，這是因為資料不平衡所致
+- 因此我們下一小節以Adaboost來解決資料不平衡的問題
+
+### **[Part 3].Adaboost 演算法**
+```{r message=FALSE, warning=FALSE}
+boo=boosting(y~.,data_train,mfinal=5) #建立Adaboost模型
+pre_boo=predict(boo,data_test)
+
+err_boo=sum(pre_boo$class!=data_test$y)/nrow(data_test)#計算整體錯誤率
+err_minor_boo=sum(pre_boo$class[sub_minor]!=data_test$y[sub_minor])/length(sub_minor)#計算yes的錯誤率
+err_major_boo=sum(pre_boo$class[sub_major]!=data_test$y[sub_major])/length(sub_major)#計算no錯誤率
+err_boo; err_minor_boo; err_major_boo
+```
+
+- 我們可以發現Yes的錯誤率有所下降
+- Adaboost確實可以修正資料不平衡的問題
+- 但本次我們並沒有辦法多次循環重複校正，所以就一次性來說是足夠的
